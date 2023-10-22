@@ -1,0 +1,79 @@
+name: test-build
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test-build:
+    runs-on: [self-hosted, office]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16.20
+
+      - name: Installing dependancies
+        run: yarn install --ignore-engines
+
+      - name: Finding affected
+        id: affected
+        run: |
+          AFFECTED=$( git diff --name-only --diff-filter=d ${{ github.base_ref }}... | grep packages | awk -F'/' '{ print $2 }' | sort -u | tr '\n' ' ' )
+          echo Last merge: ${{ github.event.pull_request.head.sha }}
+          echo Affected packages: $AFFECTED
+          echo "AFFECTED=$AFFECTED" >> $GITHUB_OUTPUT
+
+      - name: Linting affected
+        run: |
+          LINT_PACKAGES=$( cat ./package.json | jq .scripts | grep '"lint:[^fix]' | awk -F'"' '{ print $2 }' )
+          for PACKAGE in ${{ steps.affected.outputs.AFFECTED }}; do
+            if [[ "$LINT_PACKAGES" =~ "lint:$PACKAGE" ]]; then
+              echo Linting $PACKAGE
+              yarn lint:$PACKAGE
+            else
+              echo Linting $PACKAGE not found!
+            fi
+          done
+          for PACKAGE in ${{ steps.affected.outputs.AFFECTED_SHARED }}; do
+            if [[ "$LINT_PACKAGES" =~ "lint:shared:$PACKAGE" ]]; then
+              echo Linting $PACKAGE
+              yarn lint:shared:$PACKAGE
+            else
+              echo Linting $PACKAGE not found!
+            fi
+          done
+
+      - name: Building affected
+        run: |
+          BUILD_PACKAGES=$( cat ./package.json | jq .scripts | grep '"build:' | awk -F'"' '{ print $2 }' )
+          for PACKAGE in ${{ steps.affected.outputs.AFFECTED }}; do
+            if [[ "$BUILD_PACKAGES" =~ "build:$PACKAGE" ]]; then
+              echo Building $PACKAGE
+              yarn build:$PACKAGE
+            else
+              echo Building $PACKAGE not found!
+            fi
+          done
+
+      - name: Testing affected
+        run: |
+          TEST_PACKAGES=$( cat ./package.json | jq .scripts | grep '"test:' | awk -F'"' '{ print $2 }' )
+          for PACKAGE in ${{ steps.affected.outputs.AFFECTED }}; do
+            if [[ "$TEST_PACKAGES" =~ "test:$PACKAGE" ]]; then
+              echo Testing $PACKAGE
+              if [[ "$PACKAGE" =~ "backend" ]]; then
+                docker run --rm --name postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d mobile_repaired_book
+                sleep 10
+                yarn migrations:unft-backend
+              fi
+              yarn test:$PACKAGE
+            else
+              echo Testing $PACKAGE not found!
+            fi
+          done
+
+      - name: Cleaning up
+        if: ${{ always() }}
+        run: docker stop postgres || true

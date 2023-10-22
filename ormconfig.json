@@ -1,0 +1,21 @@
+[
+    {
+      "type": "postgres",
+      "host": "localhost",
+      "port": 5432,
+      "username": "postgres",
+      "password": "postgres",
+      "database": "mobile_repaired_book",
+      "schema": "public",
+      "synchronize": false,
+      "migrationsRun": false,
+      "logging": true,
+      "logger": "file",
+      "entities": ["src/entities/*.entity.ts"],
+      "migrations": ["src/migrations/*.ts"],
+      "cli": {
+        "migrationsDir": "src/migrations"
+      }
+    }
+  ]
+  
